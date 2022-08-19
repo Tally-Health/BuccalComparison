@@ -82,12 +82,12 @@ adjustSVA <- function(mat,age)
 #}
 
 #Vars
-setwd("D:\\Data\\Projects\\Tally\\pipelines/OtherClocks/") #Set this to whatever your working dir is. 
+setwd("D:\\Data\\Projects\\Tally\\Repositories/BuccalComparison/") #Set this to whatever your working dir is. 
 #Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 10)  #may be required for some big GEO files
 ## SETUP
 cl <- makePSOCKcluster(8)
 registerDoParallel(cl)
-
+#stopCluster(cl)
 #I'm commenting this out because it is a pain to read in this giant csv file. Instead I recommend just loading in the Rds object using readRDS below
 #gse137688<-read_csv("GSE137688_AverageBeta_MavanMoms.csv",col_names = TRUE)
 meta137688=read.delim("metaGSE137688.txt",header=TRUE,stringsAsFactors = FALSE,sep="\t")
@@ -235,27 +235,27 @@ plot(x=pr$x[,1],y=pr$x[,2],main="Ms by Cell Type",col=celltypecol,pch=20,cex=1,x
 dev.off()
 #msc=ComBat(ms,batches)
 #Find most correlated sites with age
-c2c=getCors(msc[,status_comb=="Healthy"],ages_comb[status_comb=="Healthy"])
-hist(c2c,breaks=30)
+c2=getCors(ms[,status_comb=="Healthy"],ages_comb[status_comb=="Healthy"])
+hist(c2,breaks=30)
 #Get most variable sites
-vc=rowVars(msc[,status_comb=="Healthy"])
-names(vc)<-rownames(msc) 
-hist(vc,breaks=30)
+v=rowVars(ms[,status_comb=="Healthy"])
+names(v)<-rownames(ms) 
+hist(v,breaks=30)
 
 #Get sites that don't have gaps in their values (they are relatively evenly distributed)
-gc=getMeanGaps(msc[,status_comb=="Healthy"])
+c=getMeanGaps(ms[,status_comb=="Healthy"])
 
 #filter corelated CpGs that are changing and are well distributed
-cc=c2c[vc>0.1&gc<0.02]
+c=c2[v>0.1&g<0.02]
 
 #now let's sort by correlation magnitude
-cc=cc[order(abs(cc),decreasing = TRUE)]
+c=c[order(abs(c),decreasing = TRUE)]
 
 #test (pick a few to plot)
-pdf("TopCorrelatedWithBuccalSalivaCorrected.pdf",width = 12,height=12)
+pdf("TopCorrelatedWithBuccalSaliva.pdf",width = 12,height=12)
 par(mfrow=c(5,5))
 for(i in 1:25){
-  toplot=data.frame(x=msc[rownames(msc)==names(cc)[i],status_comb=="Healthy"],y=ages_comb[status_comb=="Healthy"])
+  toplot=data.frame(x=ms[rownames(ms)==names(c)[i],status_comb=="Healthy"],y=ages_comb[status_comb=="Healthy"])
   plot(toplot$x,toplot$y,main=names(c)[i],pch=18,xlab="",ylab="age")
   abline(fit <- lm(y ~ x, data=toplot), col='red')
 }
@@ -272,25 +272,26 @@ df$CD8T=out2[status_comb=="Healthy",6]
 df$Mono=out2[status_comb=="Healthy",7]
 df$Neutro=out2[status_comb=="Healthy",8]
 set.seed(42)
-seeds <- vector(mode = "list", length = 31)
-for(i in 1:30) seeds[[i]] <- sample.int(1000000000, 31) 
-seeds[[31]]<-sample(1000000000,1)
+seeds <- vector(mode = "list", length = 11)
+for(i in 1:10) seeds[[i]] <- sample.int(1000000000, 19) 
+seeds[[11]]<-sample(1000000000,1)
 ####Train control (settings for ML, check out ?trainControl)
-control<- trainControl(method="repeatedcv",number = 10, repeats=1, verboseIter = TRUE, seeds = seeds,selectionFunction = "best",predictionBounds = c(0,100), allowParallel = TRUE,savePredictions = "final")
+control<- trainControl(method="repeatedcv",number = 10, repeats=1, verboseIter = TRUE,selectionFunction = "best",predictionBounds = c(0,100), allowParallel = TRUE,savePredictions = "final")
+control100<- trainControl(method="repeatedcv",number = 10, repeats=100, verboseIter = TRUE,selectionFunction = "best",predictionBounds = c(0,100), allowParallel = TRUE,savePredictions = "final")
 
 eGrid <- expand.grid(.alpha = (1:19) * 0.05, 
                      .lambda = (1:19) * 0.05)
 #celltypecol=rgb(out3)
 #Run the model training, modeling Age as a function of all other inputs. Check out the caret help for all possible methods.
 model <- train(Age~.,data=df,method="glmnet",trControl=control, importance=TRUE,tuneGrid=eGrid, preProcess=c("center","scale"))
-pdf("BuccalSalivaHealthy10kModel2.pdf")
-#plot(model$pred$obs,model$pred$pred,pch=18,main="10k cor cell glmnet",xlab="Age",ylab="Pred. Age",xlim=c(20,100),ylim=c(20,100),col=celltypecol[model$pred$rowIndex])
-plot(model$pred$obs,model$pred$pred,pch=18,main="10k cor cell glmnet",xlab="Age",ylab="Pred. Age",xlim=c(20,100),ylim=c(20,100),col=alpha(c("red","orange","blue","green"),0.5)[batches[status_comb=="Healthy"][model$pred$rowIndex]])
+pdf("BuccalSalivaHealthy10kModel.pdf")
+plot(model$pred$obs,model$pred$pred,pch=18,main="10k cor cell glmnet",xlab="Age",ylab="Pred. Age",xlim=c(20,100),ylim=c(20,100),col=celltypecol[status_comb=="Healthy"][model$pred$rowIndex])
+#plot(model$pred$obs,model$pred$pred,pch=18,main="10k cor cell glmnet",xlab="Age",ylab="Pred. Age",xlim=c(20,100),ylim=c(20,100),col=alpha(c("red","orange","blue","green"),0.5)[batches[status_comb=="Healthy"][model$pred$rowIndex]])
 abline(fit <- lm(pred ~ obs, data=model$pred), col='red')
 abline(c(1,1), col='gray')
 bestIndex=which(model$results$alpha==model$bestTune$alpha & model$results$lambda==model$bestTune$lambda)
-legend("topleft", bty="n", legend=paste("R2 is", format(model$results$Rsquared[bestIndex], digits=4)," RMSE is ",format(model$results$RMSE[bestIndex], digits=4)," MAE is ",format(model$results$MAE[bestIndex], digits=4)))
-legend("bottomright",legend = c("DS","Smokers","Mothers","Saliva"),fill = alpha(c("red","orange","blue","green","purple"),0.5))
+#legend("topleft", bty="n", legend=paste("R2 is", format(model$results$Rsquared[bestIndex], digits=4)," RMSE is ",format(model$results$RMSE[bestIndex], digits=4)," MAE is ",format(model$results$MAE[bestIndex], digits=4)))
+#legend("bottomright",legend = c("DS","Smokers","Mothers","Saliva"),fill = alpha(c("red","orange","blue","green","purple"),0.5))
 dev.off()
 
 model$imp=varImp(model,useModel = TRUE,scale = TRUE)$importance
@@ -320,10 +321,11 @@ df130$Neutro=out2[status_comb=="Healthy",8]
 #impute missing values
 impute=preProcess(df130, method = c("medianImpute"))
 df130=predict(impute,df130)
-model130 <- train(Age~.,data=df130,method="lm",trControl=control, importance=TRUE,preProcess=c("center","scale"))
-pdf("BuccalSalivaHealthy130lm2.pdf")
+set.seed(13)
+model130 <- train(Age~.,data=df130,method="lm",trControl=control, preProcess=c("center","scale"))
+pdf("BuccalSalivaHealthy130lm.pdf")
 #plot(model130$pred$obs,model130$pred$pred,pch=18,main="130 lm",xlab="Age",ylab="Pred. Age",xlim=c(20,100),ylim=c(20,100),col=alpha(c("red","orange","blue","green"),0.5)[batches[status_comb=="Healthy"][model130$pred$rowIndex]])
-plot(model130$pred$obs,model130$pred$pred,pch=18,main="130 lm",xlab="Age",ylab="Pred. Age",xlim=c(20,100),ylim=c(20,100),col=celltypecol[model130$pred$rowIndex])
+plot(model130$pred$obs,model130$pred$pred,pch=18,main="130 lm",xlab="Age",ylab="Pred. Age",xlim=c(20,100),ylim=c(20,100),col=celltypecol[status_comb=="Healthy"][model130$pred$rowIndex])
 abline(fit <- lm(pred ~ obs, data=model130$pred), col='red')
 abline(c(1,1), col='gray')
 legend("topleft", bty="n", legend=paste("R2 is", format(model130$results$Rsquared, digits=4)," RMSE is ",format(model130$results$RMSE, digits=4)," MAE is ",format(model130$results$MAE, digits=4)))
@@ -346,16 +348,17 @@ DADS=pred[status_comb=="DS"]-ages_comb[status_comb=="DS"]
 DACIG=pred[status_comb=="Cigarette Smoker"]-ages_comb[status_comb=="Cigarette Smoker"]
 DASNUFF=pred[status_comb=="Moist Snuff User"]-ages_comb[status_comb=="Moist Snuff User"]
 #boxlist=list("Healthy"=DAHealthy,"DS"=DADS,"SNUFF"=DASNUFF)
-boxlist=list("Healthy"=DAHealthy,"DS"=DADS,"SNUFF"=DASNUFF,"CIG"=DACIG,"PD"=DAPD)
-pdf("DABuccalSaliva130lmAllCorrected.pdf",width = 6,height=6)
-boxplot(boxlist,main="Delta Age across conditions 130 lm",col=c("Green","Blue","Red","Orange","purple"))
-legend("bottomright",legend = sprintf("DS:%3.3f CIG:%3.3f SNUFF:%3.3f PD:%3.3f",wilcox.test(DAHealthy,DADS)$p.value,wilcox.test(DAHealthy,DACIG)$p.value,wilcox.test(DAHealthy,DASNUFF)$p.value,wilcox.test(DAHealthy,DAPD)$p.value))
+boxlist=list("Healthy"=DAHealthy,"DS"=DADS,"CIG"=DACIG,"SNUFF"=DASNUFF,"PD"=DAPD)
+pdf("DABuccalSaliva130lmAll.pdf",width = 6,height=6)
+boxplot(boxlist,main="Delta Age across conditions 130 lm",col=c("Green","Blue","Red","orange","purple"))
+#legend("bottomright",legend = sprintf("DS:%3.3f CIG:%3.3f SNUFF:%3.3f PD:%3.3f",wilcox.test(DAHealthy,DADS)$p.value,wilcox.test(DAHealthy,DACIG)$p.value,wilcox.test(DAHealthy,DASNUFF)$p.value,wilcox.test(DAHealthy,DAPD)$p.value))
 dev.off()
 boxlist=list("Healthy"=DAHealthy,"DS"=DADS,"SNUFF"=DASNUFF)
 pdf("DABuccalSaliva130lm.pdf",width = 6,height=6)
 boxplot(boxlist,main="Delta Age across conditions 130 lm",col=c("Green","Blue","Orange"))
 #legend("bottomright",legend = sprintf("DS:%3.3f CIG:%3.3f SNUFF:%3.3f PD:%3.3f",wilcox.test(DAHealthy,DADS)$p.value,wilcox.test(DAHealthy,DACIG)$p.value,wilcox.test(DAHealthy,DASNUFF)$p.value,wilcox.test(DAHealthy,DAPD)$p.value))
 dev.off()
+
 dfall=as.data.frame(t(ms))
 dfall$Epi=out2[,1]
 dfall$Fib=out2[,2]
@@ -365,14 +368,15 @@ dfall$CD4T=out2[,5]
 dfall$CD8T=out2[,6]
 dfall$Mono=out2[,7]
 dfall$Neutro=out2[,8]
-pred=predict(model,dfall)
-DAHealthy=modelc$pred$pred-modelc$pred$obs
+pred=predict(modelu,dfall)
+DAHealthy=modelu$pred$pred-modelu$pred$obs
 DAPD=pred[status_comb=="PD"]-ages_comb[status_comb=="PD"]
 DADS=pred[status_comb=="DS"]-ages_comb[status_comb=="DS"]
 DACIG=pred[status_comb=="Cigarette Smoker"]-ages_comb[status_comb=="Cigarette Smoker"]
 DASNUFF=pred[status_comb=="Moist Snuff User"]-ages_comb[status_comb=="Moist Snuff User"]
-boxlist=list("Healthy"=DAHealthy,"DS"=DADS,"SNUFF"=DASNUFF,"CIG"=DACIG,"PD"=DAPD)
-pdf("DABuccal10kAllCorrected.pdf",width = 6,height=6)
+boxlist=list("Healthy"=DAHealthy,"DS"=DADS,"CIG"=DACIG,"SNUFF"=DASNUFF,"PD"=DAPD)
+
+pdf("DABuccal10kAll.pdf",width = 6,height=6)
 boxplot(boxlist,main="Delta Age across conditions 10k glmnet",col=c("Green","Blue","Red","Orange","purple"))
 legend("bottomright",legend = sprintf("DS:%3.3f CIG:%3.3f SNUFF:%3.3f PD:%3.3f ",wilcox.test(DAHealthy,DADS)$p.value,wilcox.test(DAHealthy,DACIG)$p.value,wilcox.test(DAHealthy,DASNUFF)$p.value,wilcox.test(DAHealthy,DAPD)$p.value))
 dev.off()
@@ -381,4 +385,10 @@ pdf("DABuccal10k.pdf",width = 6,height=6)
 boxplot(boxlist,main="Delta Age across conditions 10k glmnet",col=c("Green","Blue","orange"))
 #legend("bottomright",legend = sprintf("DS:%3.3f CIG:%3.3f SNUFF:%3.3f PD:%3.3f ",wilcox.test(DAHealthy,DADS)$p.value,wilcox.test(DAHealthy,DACIG)$p.value,wilcox.test(DAHealthy,DASNUFF)$p.value,wilcox.test(DAHealthy,DAPD)$p.value))
 dev.off()
+
+set.seed(42)
+control100<- trainControl(method="repeatedcv",number = 10, repeats=100, verboseIter = TRUE,selectionFunction = "best",predictionBounds = c(0,100), allowParallel = TRUE,savePredictions = "final")
+#Run the model training, modeling Age as a function of all other inputs. Check out the caret help for all possible methods.
+model100 <- train(Age~.,data=df,method="glmnet",trControl=control100, importance=TRUE,tuneGrid=eGrid, preProcess=c("center","scale"))
+
 
