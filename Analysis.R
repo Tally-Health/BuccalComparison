@@ -1,4 +1,3 @@
-
 #Loading necessary libraries. You will need to install these into your R environment using either install.packages or bioconductor. You can google each one.
 library(caret)
 library(gplots)
@@ -62,7 +61,7 @@ adjustSVA <- function(mat,age)
 }
 
 #Adjust for cell type composition by adjusting the betas. Returns adjusted betas. Takes a bit of time.
-#Batch correction happens prior to this. From Jones, Meaghan J. (2015). [Methods in Molecular Biology]  || Adjusting for Cell Type Composition in DNA Methylation Data Using a Regression-Based Approach. , (Chapter 262), –.         doi:10.1007/7651_2015_262     
+#Batch correction happens prior to this. From Jones, Meaghan J. (2015). [Methods in Molecular Biology]  || Adjusting for Cell Type Composition in DNA Methylation Data Using a Regression-Based Approach. , (Chapter 262), –.         doi:10.1007/7651_2015_262     
 #adjustCellType <- function(betas,composition)
 #{
 #  beta.lm<-apply(betas, 1, function(x)
@@ -82,7 +81,7 @@ adjustSVA <- function(mat,age)
 #}
 
 #Vars
-setwd("D:\\Data\\Projects\\Tally\\Repositories/BuccalComparison/") #Set this to whatever your working dir is. 
+#setwd("D:\\Data\\Projects\\Tally\\Repositories/BuccalComparison/") #Set this to whatever your working dir is. 
 #Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 10)  #may be required for some big GEO files
 ## SETUP
 cl <- makePSOCKcluster(8)
@@ -119,7 +118,7 @@ targets=data.frame("Basename"=substr(list.files(path="GSE111223/",pattern="Red.i
 #for(f in list.files(path="GSE111223/",pattern=".gz")){
 #  gunzip(paste0("GSE111223/",f))  
 #}
-RGset=read.metharray.exp(base = "GSE111223/",targets=targets)
+RGset= read.metharray.exp("GSE111223/idat")
 noob=preprocessNoob(RGset)
 gsnoob=mapToGenome(noob)
 #Annotate the sites
@@ -150,16 +149,16 @@ a=df50586[,colnames(df50586)%in%commonProbes]
 b=df94876[,colnames(df94876)%in%commonProbes]
 c=df137688[,colnames(df137688)%in%commonProbes]
 d=df111223[,colnames(df111223)%in%commonProbes]
-e=df40279[,colnames(df40279)%in%commonProbes]
+#e=df40279[,colnames(df40279)%in%commonProbes]
 all(colnames(a)==colnames(b))
 all(colnames(a)==colnames(c))
 all(colnames(a)==colnames(d))
-all(colnames(a)==colnames(e))
+#all(colnames(a)==colnames(e))
 dim(a)
 dim(b)
 dim(c)
 dim(d)
-dim(e)
+#dim(e)
 
 #Combine by common probes:
 df_comb=rbind(df50586[,colnames(df50586)%in%commonProbes],df94876[,colnames(df94876)%in%commonProbes],df137688[,colnames(df137688)%in%commonProbes],df111223[,colnames(df111223)%in%commonProbes])
@@ -188,9 +187,9 @@ celltypecol=rgb(out2[,c(1,8,10)])
 batches=c(rep(1,20),rep(2,120),rep(3,250),rep(4,length(ages2)))
 
 #run batch correction
-combated=ComBat(t(df_comb),batch = batches,mod = ages_comb)
-msc=getM(combated)
-msc=msc[!is.na(rowSums(msc)),]
+#combated=ComBat(t(df_comb),batch = batches,mod = ages_comb)
+#msc=getM(combated)
+#msc=msc[!is.na(rowSums(msc)),]
 #run cell type correction
 #corrected=adjustCellType(combated,as.data.frame(out2))
 
@@ -203,7 +202,7 @@ msc=msc[!is.na(rowSums(msc)),]
 ms=getM(t(df_comb))
 ms=ms[!is.na(rowSums(ms)),]
 
-svaRes=sva(t(df_comb),mod = model.matrix(~ages_comb,data=as.data.frame(ages_comb)),method = "irw")
+#svaRes=sva(t(df_comb),mod = model.matrix(~ages_comb,data=as.data.frame(ages_comb)),method = "irw")
 #Filter ms by batch, if you want to remove entire datasets prior to downstream processing or training.
 #ms=ms[,batches<5]
 #ages_comb=ages_comb[batches<5]
@@ -243,7 +242,7 @@ names(v)<-rownames(ms)
 hist(v,breaks=30)
 
 #Get sites that don't have gaps in their values (they are relatively evenly distributed)
-c=getMeanGaps(ms[,status_comb=="Healthy"])
+g=getMeanGaps(ms[,status_comb=="Healthy"])
 
 #filter corelated CpGs that are changing and are well distributed
 c=c2[v>0.1&g<0.02]
@@ -284,13 +283,13 @@ eGrid <- expand.grid(.alpha = (1:19) * 0.05,
 #celltypecol=rgb(out3)
 #Run the model training, modeling Age as a function of all other inputs. Check out the caret help for all possible methods.
 model <- train(Age~.,data=df,method="glmnet",trControl=control, importance=TRUE,tuneGrid=eGrid, preProcess=c("center","scale"))
-pdf("BuccalSalivaHealthy10kModel.pdf")
+pdf("BuccalSalivaHealthy10kModelg.pdf")
 plot(model$pred$obs,model$pred$pred,pch=18,main="10k cor cell glmnet",xlab="Age",ylab="Pred. Age",xlim=c(20,100),ylim=c(20,100),col=celltypecol[status_comb=="Healthy"][model$pred$rowIndex])
 #plot(model$pred$obs,model$pred$pred,pch=18,main="10k cor cell glmnet",xlab="Age",ylab="Pred. Age",xlim=c(20,100),ylim=c(20,100),col=alpha(c("red","orange","blue","green"),0.5)[batches[status_comb=="Healthy"][model$pred$rowIndex]])
 abline(fit <- lm(pred ~ obs, data=model$pred), col='red')
 abline(c(1,1), col='gray')
 bestIndex=which(model$results$alpha==model$bestTune$alpha & model$results$lambda==model$bestTune$lambda)
-#legend("topleft", bty="n", legend=paste("R2 is", format(model$results$Rsquared[bestIndex], digits=4)," RMSE is ",format(model$results$RMSE[bestIndex], digits=4)," MAE is ",format(model$results$MAE[bestIndex], digits=4)))
+legend("topleft", bty="n", legend=paste("R2 is", format(model$results$Rsquared[bestIndex], digits=4)," RMSE is ",format(model$results$RMSE[bestIndex], digits=4)," MAE is ",format(model$results$MAE[bestIndex], digits=4)))
 #legend("bottomright",legend = c("DS","Smokers","Mothers","Saliva"),fill = alpha(c("red","orange","blue","green","purple"),0.5))
 dev.off()
 
@@ -368,8 +367,8 @@ dfall$CD4T=out2[,5]
 dfall$CD8T=out2[,6]
 dfall$Mono=out2[,7]
 dfall$Neutro=out2[,8]
-pred=predict(modelu,dfall)
-DAHealthy=modelu$pred$pred-modelu$pred$obs
+pred=predict(model,dfall)
+DAHealthy=model$pred$pred-model$pred$obs
 DAPD=pred[status_comb=="PD"]-ages_comb[status_comb=="PD"]
 DADS=pred[status_comb=="DS"]-ages_comb[status_comb=="DS"]
 DACIG=pred[status_comb=="Cigarette Smoker"]-ages_comb[status_comb=="Cigarette Smoker"]
@@ -383,12 +382,10 @@ dev.off()
 boxlist=list("Healthy"=DAHealthy,"DS"=DADS,"SNUFF"=DASNUFF)
 pdf("DABuccal10k.pdf",width = 6,height=6)
 boxplot(boxlist,main="Delta Age across conditions 10k glmnet",col=c("Green","Blue","orange"))
-#legend("bottomright",legend = sprintf("DS:%3.3f CIG:%3.3f SNUFF:%3.3f PD:%3.3f ",wilcox.test(DAHealthy,DADS)$p.value,wilcox.test(DAHealthy,DACIG)$p.value,wilcox.test(DAHealthy,DASNUFF)$p.value,wilcox.test(DAHealthy,DAPD)$p.value))
+legend("bottomright",legend = sprintf("DS:%3.3f CIG:%3.3f SNUFF:%3.3f PD:%3.3f ",wilcox.test(DAHealthy,DADS)$p.value,wilcox.test(DAHealthy,DACIG)$p.value,wilcox.test(DAHealthy,DASNUFF)$p.value,wilcox.test(DAHealthy,DAPD)$p.value))
 dev.off()
 
 set.seed(42)
 control100<- trainControl(method="repeatedcv",number = 10, repeats=100, verboseIter = TRUE,selectionFunction = "best",predictionBounds = c(0,100), allowParallel = TRUE,savePredictions = "final")
 #Run the model training, modeling Age as a function of all other inputs. Check out the caret help for all possible methods.
 model100 <- train(Age~.,data=df,method="glmnet",trControl=control100, importance=TRUE,tuneGrid=eGrid, preProcess=c("center","scale"))
-
-
