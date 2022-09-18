@@ -168,10 +168,25 @@ ages_comb=c(as.numeric(GSE50586$GSE50586_series_matrix.txt.gz$`age:ch1`),as.nume
 status_comb=c(rep("DS",10),rep("Healthy",10),smoker,rep("Healthy",length(meta137688$Age)),PD)
 status_comb[status_comb=="Non-Tobacco User"]<-"Healthy"
 
+c2=getCors(ms[,status_comb=="Healthy"],ages_comb[status_comb=="Healthy"])
+#hist(c2,breaks=30)
+#Get most variable sites
+v=rowVars(ms[,status_comb=="Healthy"])
+names(v)<-rownames(ms) 
+#hist(v,breaks=30)
 
+#Get sites that don't have gaps in their values (they are relatively evenly distributed)
+g=getMeanGaps(ms[,status_comb=="Healthy"])
+
+#filter corelated CpGs that are changing and are well distributed
+c=c2[v>0.1&g<0.02]
+
+#now let's sort by correlation magnitude
+c=c[order(abs(c),decreasing = TRUE)]
 
 
 #Identify cell type
+df_comb[is.na(df_comb)]<-0
 df_mat=t(as.matrix(df_comb))
 betas=df_mat[rowVars(df_mat)>0.001,]
 #One unbiased method for identifying confounding factors:
@@ -206,55 +221,6 @@ celltypecol=rgb(out2[,c(1,8,10)])
 ms=getM(t(df_comb))
 ms=ms[!is.na(rowSums(ms)),]
 
-#svaRes=sva(t(df_comb),mod = model.matrix(~ages_comb,data=as.data.frame(ages_comb)),method = "irw")
-#Filter ms by batch, if you want to remove entire datasets prior to downstream processing or training.
-#ms=ms[,batches<5]
-#ages_comb=ages_comb[batches<5]
-#status_comb=status_comb[batches<5]
-#out2=out2[batches<5,]
-
-#From now on, we will be subsetting on healthy
-
-#PCA health
-
-#msc=ComBat(ms,batches)
-#Find most correlated sites with age
-c2=getCors(ms[,status_comb=="Healthy"],ages_comb[status_comb=="Healthy"])
-hist(c2,breaks=30)
-#Get most variable sites
-v=rowVars(ms[,status_comb=="Healthy"])
-names(v)<-rownames(ms) 
-hist(v,breaks=30)
-
-#Get sites that don't have gaps in their values (they are relatively evenly distributed)
-g=getMeanGaps(ms[,status_comb=="Healthy"])
-
-#filter corelated CpGs that are changing and are well distributed
-c=c2[v>0.1&g<0.02]
-
-#now let's sort by correlation magnitude
-c=c[order(abs(c),decreasing = TRUE)]
-#code for random 300, uncomment random 200 code and rerun from here to test on 200
-df=as.data.frame(t(ms[rownames(ms)%in% names(c)[1:10000],status_comb=="Healthy"]))
-df$Age=as.numeric(ages_comb[status_comb=="Healthy"])
-df$Epi=out2[status_comb=="Healthy",1]
-df$Fib=out2[status_comb=="Healthy",2]
-df$B=out2[status_comb=="Healthy",3]
-df$NK=out2[status_comb=="Healthy",4]
-df$CD4T=out2[status_comb=="Healthy",5]
-df$CD8T=out2[status_comb=="Healthy",6]
-df$Mono=out2[status_comb=="Healthy",7]
-df$Neutro=out2[status_comb=="Healthy",8]
-ss<-seq(1,431,1)
-#random 300
-s300<-sample(ss,300)
-df=df[s300,]
-#random 200
-#s200<-sample(ss,200)
-#df=df[s200,]
-
-#s100<-sample(ss,100)
-#df=df[s100,]
 set.seed(42)
 seeds <- vector(mode = "list", length = 11)
 for(i in 1:10) seeds[[i]] <- sample.int(1000000000, 19) 
@@ -265,34 +231,27 @@ control100<- trainControl(method="repeatedcv",number = 10, repeats=100, verboseI
 
 eGrid <- expand.grid(.alpha = (1:19) * 0.05, 
                      .lambda = (1:19) * 0.05)
-#celltypecol=rgb(out3)
-#Run the model training, modeling Age as a function of all other inputs. Check out the caret help for all possible methods.
-model <- train(Age~.,data=df,method="glmnet",trControl=control, importance=TRUE,tuneGrid=eGrid, preProcess=c("center","scale"))
-pdf("BuccalSalivaHealthy10kModel_300.pdf")
-plot(model$pred$obs,model$pred$pred,pch=18,main="10k cor cell glmnet 300 Healthy",xlab="Age",ylab="Pred. Age",xlim=c(20,100),ylim=c(20,100))
-#plot(model$pred$obs,model$pred$pred,pch=18,main="10k cor cell glmnet 100 Healthy",xlab="Age",ylab="Pred. Age",xlim=c(20,100),ylim=c(20,100),col=celltypecol[status_comb=="Healthy"][model$pred$rowIndex])
-#plot(model$pred$obs,model$pred$pred,pch=18,main="10k cor cell glmnet",xlab="Age",ylab="Pred. Age",xlim=c(20,100),ylim=c(20,100),col=alpha(c("red","orange","blue","green"),0.5)[batches[status_comb=="Healthy"][model$pred$rowIndex]])
-abline(fit <- lm(pred ~ obs, data=model$pred), col='red')
-abline(c(1,1), col='gray')
-bestIndex=which(model$results$alpha==model$bestTune$alpha & model$results$lambda==model$bestTune$lambda)
-legend("topleft", bty="n", legend=paste("R2 is", format(model$results$Rsquared[bestIndex], digits=4)," RMSE is ",format(model$results$RMSE[bestIndex], digits=4)," MAE is ",format(model$results$MAE[bestIndex], digits=4)))
-#legend("bottomright",legend = c("DS","Smokers","Mothers","Saliva"),fill = alpha(c("red","orange","blue","green","purple"),0.5))
-dev.off()
 
-#model$imp=varImp(model,useModel = TRUE,scale = TRUE)$importance
-#rn=rownames(model$imp)
-#o=order(model$imp$Overall,decreasing = TRUE)
-#model$imp=model$imp[o,]
-#names(model$imp)<-rn[o]
-#model$impGenes<-anno$UCSC_RefGene_Name[match(names(model$imp),rownames(anno))]
-#write.table(cbind(model$imp,model$impGenes)[model$imp>0,],"BuccalSaliva10kModelCorrectedCpGs.txt",row.names = TRUE,col.names = NA,sep = "\t")
-model$cs=as.matrix(coef.glmnet(model$finalModel,model$bestTune$lambda))
-write.table(model$cs,quote=FALSE,sep="\t",file = "10kModelCoefficients_200.tsv")
 common=read.table("CommonCpGs130.txt")
-dfmat130=df_mat[rownames(df_mat)%in% common[,1],batches<5]
+dfmat130=df_mat[rownames(df_mat)%in% common[,1],]
 #dfmat130=combated[rownames(combated)%in% common[,1],]
 ms130=getM(dfmat130)
+dfall=as.data.frame(t(ms130))
+dfall$Epi=out2[,1]
+dfall$Fib=out2[,2]
+dfall$B=out2[,3]
+dfall$NK=out2[,4]
+dfall$CD4T=out2[,5]
+dfall$CD8T=out2[,6]
+dfall$Mono=out2[,7]
+dfall$Neutro=out2[,8]
 #ms130=ms[row.names(ms) %in% common[,1],]
+all_r2_130_200 = vector()
+all_mae_130_200 = vector()
+all_rmse_130_200 = vector()
+all_p_ds_130_200 = vector()
+all_p_ms_130_200 = vector()
+for(i in 1:100){
 df130=as.data.frame(t(ms130[,status_comb=="Healthy"]))
 df130$Age=as.numeric(ages_comb[status_comb=="Healthy"])
 df130$Epi=out2[status_comb=="Healthy",1]
@@ -306,49 +265,67 @@ df130$Neutro=out2[status_comb=="Healthy",8]
 #impute missing values
 impute=preProcess(df130, method = c("medianImpute"))
 df130=predict(impute,df130)
+ss<-seq(1,431,1)
+#random 300
+s200<-sample(ss,200)
 #same random 300 
-df130=df130[s300,]
+#df130=df130[s300,]
 #same random 200
-#df130=df130[s200,]
+df130=df130[s200,]
 #df130=df130[s100,]
-set.seed(13)
+#set.seed(13)
 model130 <- train(Age~.,data=df130,method="lm",trControl=control, preProcess=c("center","scale"))
-pdf("BuccalSalivaHealthy130lm_300.pdf")
-#plot(model130$pred$obs,model130$pred$pred,pch=18,main="130 lm",xlab="Age",ylab="Pred. Age",xlim=c(20,100),ylim=c(20,100),col=alpha(c("red","orange","blue","green"),0.5)[batches[status_comb=="Healthy"][model130$pred$rowIndex]])
-#plot(model130$pred$obs,model130$pred$pred,pch=18,main="130 lm 200 Healthy",xlab="Age",ylab="Pred. Age",xlim=c(20,100),ylim=c(20,100),col=celltypecol[status_comb=="Healthy"][model130$pred$rowIndex])
-plot(model130$pred$obs,model130$pred$pred,pch=18,main="130 lm 300 Healthy",xlab="Age",ylab="Pred. Age",xlim=c(20,100),ylim=c(20,100))
-abline(fit <- lm(pred ~ obs, data=model130$pred), col='red')
-abline(c(1,1), col='gray')
-legend("topleft", bty="n", legend=paste("R2 is", format(model130$results$Rsquared, digits=4)," RMSE is ",format(model130$results$RMSE, digits=4)," MAE is ",format(model130$results$MAE, digits=4)))
-#legend("bottomright",legend = c("DS","Smokers","Mothers","Saliva"),fill = alpha(c("red","orange","blue","green","purple"),0.5))
-dev.off()
-write.table(model130$finalModel$coefficients,quote=FALSE,sep="\t",file = "CommonCpGsModelCoefficients_200.tsv")
-dfall=as.data.frame(t(ms130))
-dfall$Epi=out2[,1]
-dfall$Fib=out2[,2]
-dfall$B=out2[,3]
-dfall$NK=out2[,4]
-dfall$CD4T=out2[,5]
-dfall$CD8T=out2[,6]
-dfall$Mono=out2[,7]
-dfall$Neutro=out2[,8]
+all_r2_130_200 <- append(all_r2_130_200, model130$results$Rsquared)
+all_mae_130_200 <- append(all_mae_130_200, model130$results$MAE)
+all_rmse_130_200 <- append(all_rmse_130_200, model130$results$RMSE)
 pred=predict(model130,dfall)
 DAHealthy=model130$pred$pred-model130$pred$obs
-DAPD=pred[status_comb=="PD"]-ages_comb[status_comb=="PD"]
 DADS=pred[status_comb=="DS"]-ages_comb[status_comb=="DS"]
-DACIG=pred[status_comb=="Cigarette Smoker"]-ages_comb[status_comb=="Cigarette Smoker"]
-DASNUFF=pred[status_comb=="Moist Snuff User"]-ages_comb[status_comb=="Moist Snuff User"]
-#boxlist=list("Healthy"=DAHealthy,"DS"=DADS,"SNUFF"=DASNUFF)
-#boxlist=list("Healthy"=DAHealthy,"DS"=DADS,"CIG"=DACIG,"SNUFF"=DASNUFF,"PD"=DAPD)
-#pdf("DABuccalSaliva130lmAll.pdf",width = 6,height=6)
-#boxplot(boxlist,main="Delta Age across conditions 130 lm",col=c("Green","Blue","Red","orange","purple"))
-#legend("bottomright",legend = sprintf("DS:%3.3f CIG:%3.3f SNUFF:%3.3f PD:%3.3f",wilcox.test(DAHealthy,DADS)$p.value,wilcox.test(DAHealthy,DACIG)$p.value,wilcox.test(DAHealthy,DASNUFF)$p.value,wilcox.test(DAHealthy,DAPD)$p.value))
-#dev.off()
-boxlist=list("Healthy"=DAHealthy,"DS"=DADS,"SNUFF"=DASNUFF)
-pdf("DABuccalSaliva130lm_300.pdf",width = 6,height=6)
-boxplot(boxlist,main="Delta Age across conditions 130 lm 300 Healthy",col=c("Green","Blue","Orange"))
-legend("bottomright",legend = sprintf("DS:%3.3f CIG:%3.3f SNUFF:%3.3f PD:%3.3f",wilcox.test(DAHealthy,DADS)$p.value,wilcox.test(DAHealthy,DACIG)$p.value,wilcox.test(DAHealthy,DASNUFF)$p.value,wilcox.test(DAHealthy,DAPD)$p.value))
-dev.off()
+DASNUFF=pred[status_comb=="Moist Snuff User"]-ages_comb[status_comb=="Moist Snuff User"]    
+all_p_ms_130_200 <- append(all_p_ms_130_200,wilcox.test(DAHealthy,DASNUFF)$p.value)
+all_p_ds_130_200 <- append(all_p_ds_130_200, wilcox.test(DAHealthy,DADS)$p.value)
+}
+all_r2_130_300 = vector()
+all_mae_130_300 = vector()
+all_rmse_130_300 = vector()
+all_p_ds_130_300 = vector()
+all_p_ms_130_300 = vector()
+for(i in 1:100){
+  df130=as.data.frame(t(ms130[,status_comb=="Healthy"]))
+  df130$Age=as.numeric(ages_comb[status_comb=="Healthy"])
+  df130$Epi=out2[status_comb=="Healthy",1]
+  df130$Fib=out2[status_comb=="Healthy",2]
+  df130$B=out2[status_comb=="Healthy",3]
+  df130$NK=out2[status_comb=="Healthy",4]
+  df130$CD4T=out2[status_comb=="Healthy",5]
+  df130$CD8T=out2[status_comb=="Healthy",6]
+  df130$Mono=out2[status_comb=="Healthy",7]
+  df130$Neutro=out2[status_comb=="Healthy",8]
+  #impute missing values
+  impute=preProcess(df130, method = c("medianImpute"))
+  df130=predict(impute,df130)
+  ss<-seq(1,431,1)
+  #random 300
+  s300<-sample(ss,300)
+  #same random 300 
+  #df130=df130[s300,]
+  #same random 200
+  df130=df130[s300,]
+  #df130=df130[s100,]
+  #set.seed(13)
+  model130 <- train(Age~.,data=df130,method="lm",trControl=control, preProcess=c("center","scale"))
+  all_r2_130_300 <- append(all_r2_130_300, model130$results$Rsquared)
+  all_mae_130_300 <- append(all_mae_130_300, model130$results$MAE)
+  all_rmse_130_300 <- append(all_rmse_130_300, model130$results$RMSE)
+  pred=predict(model130,dfall)
+  DAHealthy=model130$pred$pred-model130$pred$obs
+  DADS=pred[status_comb=="DS"]-ages_comb[status_comb=="DS"]
+  DASNUFF=pred[status_comb=="Moist Snuff User"]-ages_comb[status_comb=="Moist Snuff User"]    
+  all_p_ms_130_300 <- append(all_p_ms_130_300,wilcox.test(DAHealthy,DASNUFF)$p.value)
+  all_p_ds_130_300 <- append(all_p_ds_130_300, wilcox.test(DAHealthy,DADS)$p.value)
+}
+
+
 
 dfall=as.data.frame(t(ms))
 dfall$Epi=out2[,1]
@@ -359,27 +336,186 @@ dfall$CD4T=out2[,5]
 dfall$CD8T=out2[,6]
 dfall$Mono=out2[,7]
 dfall$Neutro=out2[,8]
-pred=predict(model,dfall)
-DAHealthy=model$pred$pred-model$pred$obs
-DAPD=pred[status_comb=="PD"]-ages_comb[status_comb=="PD"]
-DADS=pred[status_comb=="DS"]-ages_comb[status_comb=="DS"]
-DACIG=pred[status_comb=="Cigarette Smoker"]-ages_comb[status_comb=="Cigarette Smoker"]
-DASNUFF=pred[status_comb=="Moist Snuff User"]-ages_comb[status_comb=="Moist Snuff User"]
-boxlist=list("Healthy"=DAHealthy,"DS"=DADS,"CIG"=DACIG,"SNUFF"=DASNUFF,"PD"=DAPD)
 
-#pdf("DABuccal10kAll.pdf",width = 6,height=6)
-#boxplot(boxlist,main="Delta Age across conditions 10k glmnet",col=c("Green","Blue","Red","Orange","purple"))
-#legend("bottomright",legend = sprintf("DS:%3.3f CIG:%3.3f SNUFF:%3.3f PD:%3.3f ",wilcox.test(DAHealthy,DADS)$p.value,wilcox.test(DAHealthy,DACIG)$p.value,wilcox.test(DAHealthy,DASNUFF)$p.value,wilcox.test(DAHealthy,DAPD)$p.value))
-#dev.off()
-boxlist=list("Healthy"=DAHealthy,"DS"=DADS,"SNUFF"=DASNUFF)
-pdf("DABuccal10k_300.pdf",width = 6,height=6)
-boxplot(boxlist,main="Delta Age across conditions 10k glmnet 300 Healthy",col=c("Green","Blue","orange"))
-legend("bottomright",legend = sprintf("DS:%3.3f CIG:%3.3f SNUFF:%3.3f PD:%3.3f ",wilcox.test(DAHealthy,DADS)$p.value,wilcox.test(DAHealthy,DACIG)$p.value,wilcox.test(DAHealthy,DASNUFF)$p.value,wilcox.test(DAHealthy,DAPD)$p.value))
+
+all_mae_200 = vector()
+all_r2_200 = vector()
+all_rmse_200 = vector()
+all_p_ds_200 = vector()
+all_p_ms_200 = vector()
+for(i in 1:100){
+  df=as.data.frame(t(ms[rownames(ms)%in% names(c)[1:10000],status_comb=="Healthy"]))
+  df$Age=as.numeric(ages_comb[status_comb=="Healthy"])
+  df$Epi=out2[status_comb=="Healthy",1]
+  df$Fib=out2[status_comb=="Healthy",2]
+  df$B=out2[status_comb=="Healthy",3]
+  df$NK=out2[status_comb=="Healthy",4]
+  df$CD4T=out2[status_comb=="Healthy",5]
+  df$CD8T=out2[status_comb=="Healthy",6]
+  df$Mono=out2[status_comb=="Healthy",7]
+  df$Neutro=out2[status_comb=="Healthy",8]
+  ss<-seq(1,431,1)
+  s200<-sample(ss,200)
+  df=df[s200,]
+  model <- train(Age~.,data=df,method="glmnet",trControl=control, importance=TRUE,tuneGrid=eGrid, preProcess=c("center","scale"))
+  all_r2_200<-append(all_r2_200,model$results$Rsquared[bestIndex])
+  all_rmse_200<-append(all_rmse_200,model$results$RMSE[bestIndex])
+  all_mae_200<-append(all_mae_200,model$results$MAE[bestIndex])
+  pred=predict(model,dfall)
+  DAHealthy=model$pred$pred-model$pred$obs
+  DADS=pred[status_comb=="DS"]-ages_comb[status_comb=="DS"]
+  DASNUFF=pred[status_comb=="Moist Snuff User"]-ages_comb[status_comb=="Moist Snuff User"]
+  all_p_ds_200<-append(all_p_ds_200,wilcox.test(DAHealthy,DADS)$p.value)
+  all_p_ms_200<-append(all_p_ms_200,wilcox.test(DAHealthy,DASNUFF)$p.value)
+  sink("unbiased_200.txt")
+  print(all_mae_200)
+  print(all_r2_200)
+  print(all_rmse_200)
+  print(all_mae_200)
+  print(all_p_ds_200)
+  print(all_p_ms_200)
+  sink()
+  print(i)
+}
+
+all_mae_300 = vector()
+all_r2_300 = vector()
+all_rmse_300 = vector()
+all_p_ds_300 = vector()
+all_p_ms_300 = vector()
+for(i in 1:100){
+  df=as.data.frame(t(ms[rownames(ms)%in% names(c)[1:10000],status_comb=="Healthy"]))
+  df$Age=as.numeric(ages_comb[status_comb=="Healthy"])
+  df$Epi=out2[status_comb=="Healthy",1]
+  df$Fib=out2[status_comb=="Healthy",2]
+  df$B=out2[status_comb=="Healthy",3]
+  df$NK=out2[status_comb=="Healthy",4]
+  df$CD4T=out2[status_comb=="Healthy",5]
+  df$CD8T=out2[status_comb=="Healthy",6]
+  df$Mono=out2[status_comb=="Healthy",7]
+  df$Neutro=out2[status_comb=="Healthy",8]
+  ss<-seq(1,431,1)
+  s300<-sample(ss,300)
+  df=df[s300,]
+  model <- train(Age~.,data=df,method="glmnet",trControl=control, importance=TRUE,tuneGrid=eGrid, preProcess=c("center","scale"))
+  all_r2_300<-append(all_r2_300,model$results$Rsquared[bestIndex])
+  all_rmse_300<-append(all_rmse_300,model$results$RMSE[bestIndex])
+  all_mae_300<-append(all_mae_300,model$results$MAE[bestIndex])
+  pred=predict(model,dfall)
+  DAHealthy=model$pred$pred-model$pred$obs
+  DADS=pred[status_comb=="DS"]-ages_comb[status_comb=="DS"]
+  DASNUFF=pred[status_comb=="Moist Snuff User"]-ages_comb[status_comb=="Moist Snuff User"]
+  all_p_ds_300<-append(all_p_ds_300,wilcox.test(DAHealthy,DADS)$p.value)
+  all_p_ms_300<-append(all_p_ms_300,wilcox.test(DAHealthy,DASNUFF)$p.value)
+  sink("unbiased_300_2.txt")
+  print(all_mae_300)
+  print(all_r2_300)
+  print(all_rmse_300)
+  print(all_mae_300)
+  print(all_p_ds_300)
+  print(all_p_ms_300)
+  sink()
+  print(i)
+}
+
+#all_p_ms_200<-scan('all_p_ms_200.txt', what=numeric(), sep=" ", quiet=TRUE)
+#all_p_ds_200<-scan('all_p_ds_200.txt', what=numeric(), sep=" ", quiet=TRUE)
+#all_r_200<-scan('all_r_200.txt', what=numeric(), sep=" ", quiet=TRUE)
+#all_mae_200<-scan('all_mae_200.txt', what=numeric(), sep=" ", quiet=TRUE)
+
+all_r_200 = vector()
+all_r_300 = vector()
+for (i in all_r2_200){all_r_200<-append(all_r_200,sqrt(i))}
+for (i in all_r2_300){all_r_300<-append(all_r_300,sqrt(i))}
+all_p_ms_200_log= vector()
+all_p_ds_200_log= vector()
+all_p_ms_300_log= vector()
+all_p_ds_300_log= vector()
+for (i in all_p_ms_200){all_p_ms_200_log<-append(all_p_ms_200_log,-log(i))}
+for (i in all_p_ms_300){all_p_ms_300_log<-append(all_p_ms_300_log,-log(i))}
+for (i in all_p_ds_200){all_p_ds_200_log<-append(all_p_ds_200_log,-log(i))}
+for (i in all_p_ds_300){all_p_ds_300_log<-append(all_p_ds_300_log,-log(i))}
+
+DS_plog_boxes=list("DS 200"=all_p_ds_200_log,"DS 300"=all_p_ds_300_log)
+DS_p_boxes=list("DS 200"=all_p_ds_200,"DS 300"=all_p_ds_300)
+
+pdf("DA_DS_pvals_random_sampling_log")
+boxplot(DS_plog_boxes,main="Delta Age DS p-values",xlab = "Condition and number of samples", ylab = "-log(p-values)", col=c("Blue","orange"))
 dev.off()
 
-#set.seed(42)
-#control100<- trainControl(method="repeatedcv",number = 10, repeats=100, verboseIter = TRUE,selectionFunction = "best",predictionBounds = c(0,100), allowParallel = TRUE,savePredictions = "final")
-#Run the model training, modeling Age as a function of all other inputs. Check out the caret help for all possible methods.
-#model100 <- train(Age~.,data=df,method="glmnet",trControl=control100, importance=TRUE,tuneGrid=eGrid, preProcess=c("center","scale"))
+pdf("DA_DS_pvals_random_sampling")
+boxplot(DS_p_boxes,main="Delta Age DS p-values",xlab = "Condition and number of samples", ylab = "p-values", col=c("Blue","orange"))
+dev.off()
+
+MS_plog_boxes=list("MS 200"=all_p_ms_200_log,"MS 300"=all_p_ms_300_log)
+MS_p_boxes=list("MS 200"=all_p_ms_200,"MS 300"=all_p_ms_300)
+
+pdf("DA_MS_pvals_random_sampling_log")
+boxplot(MS_plog_boxes,main="Delta Age MS p-values",xlab = "Condition and number of samples", ylab = "-log(p-values)", col=c("Blue","orange"))
+dev.off()
+
+pdf("DA_MS_pvals_random_sampling")
+boxplot(MS_p_boxes,main="Delta Age MS p-values",xlab = "Condition and number of samples", ylab = "p-values", col=c("Blue","orange"))
+dev.off()
 
 
+r_boxes = list("200"=all_r_200,"300"=all_r_300)
+pdf("10K_R_random_sampling")
+boxplot(r_boxes,main="10K Rvalues",xlab = "number of samples", ylab = "R values", col=c("Blue","orange"))
+dev.off()
+
+
+mae_boxes = list("200"=all_mae_200,"300"=all_mae_300)
+pdf("10K_MAE_random_sampling")
+boxplot(mae_boxes,main="10K MAE values",xlab = "number of samples", ylab = "MAE values", col=c("Blue","orange"))
+dev.off()
+
+all_r_130_200 = vector()
+all_r_130_300 = vector()
+for (i in all_r2_130_200){all_r_130_200<-append(all_r_130_200,sqrt(i))}
+for (i in all_r2_130_300){all_r_130_300<-append(all_r_130_300,sqrt(i))}
+all_p_ms_130_200_log= vector()
+all_p_ds_130_200_log= vector()
+all_p_ms_130_300_log= vector()
+all_p_ds_130_300_log= vector()
+for (i in all_p_ms_130_200){all_p_ms_130_200_log<-append(all_p_ms_130_200_log,-log(i))}
+for (i in all_p_ms_130_300){all_p_ms_130_300_log<-append(all_p_ms_130_300_log,-log(i))}
+for (i in all_p_ds_130_200){all_p_ds_130_200_log<-append(all_p_ds_130_200_log,-log(i))}
+for (i in all_p_ds_130_300){all_p_ds_130_300_log<-append(all_p_ds_130_300_log,-log(i))}
+
+DS_plog_130_boxes=list("DS 200"=all_p_ds_130_200_log,"DS 300"=all_p_ds_130_300_log)
+DS_p_130_boxes=list("DS 200"=all_p_ds_130_200,"DS 300"=all_p_ds_130_300)
+
+pdf("DA_DS_pvals_random_sampling_log_130")
+boxplot(DS_plog_130_boxes,main="Delta Age DS p-values",xlab = "Condition and number of samples", ylab = "-log(p-values)", col=c("Blue","orange"))
+dev.off()
+
+pdf("DA_DS_pvals_random_sampling_130")
+boxplot(DS_p_130_boxes,main="Delta Age DS p-values",xlab = "Condition and number of samples", ylab = "p-values", col=c("Blue","orange"))
+dev.off()
+
+MS_plog_130_boxes=list("MS 200"=all_p_ms_130_200_log,"MS 300"=all_p_ms_130_300_log)
+MS_p_130_boxes=list("MS 200"=all_p_ms_130_200,"MS 300"=all_p_ms_130_300)
+
+pdf("DA_MS_pvals_random_sampling_log_130")
+boxplot(MS_plog_130_boxes,main="Delta Age MS p-values",xlab = "Condition and number of samples", ylab = "-log(p-values)", col=c("Blue","orange"))
+dev.off()
+
+pdf("DA_MS_pvals_random_sampling_130")
+boxplot(MS_p_130_boxes,main="Delta Age MS p-values",xlab = "Condition and number of samples", ylab = "p-values", col=c("Blue","orange"))
+dev.off()
+
+
+r_130_boxes = list("200"=all_r_130_200,"300"=all_r_130_300)
+pdf("130_R_random_sampling_130")
+boxplot(r_130_boxes,main="Common130 Rvalues",xlab = "number of samples", ylab = "R values", col=c("Blue","orange"))
+dev.off()
+
+
+mae_boxes = list("200"=all_mae_130_200,"300"=all_mae_130_300)
+pdf("130_MAE_random_sampling_130")
+boxplot(mae_boxes,main="Common130 MAE values",xlab = "number of samples", ylab = "MAE values", col=c("Blue","orange"))
+dev.off()
+
+
+save.image("df_comb_na.RData")
